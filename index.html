@@ -1,0 +1,266 @@
+<link rel="stylesheet" href="styles.css">
+
+<div id="app">
+  <div id="title-bar">
+    Gridnav 3000
+    <span class="by">by Zayan Zamir</span>
+  </div>
+  <div id="body-row">
+    <div>
+      <div id="canvas-wrap"><canvas id="grid-canvas"></canvas></div>
+      <div id="status-bar">pick a brush and draw!! then hit run!</div>
+    </div>
+    <div id="sidebar">
+
+      <div class="panel">
+        <div class="panel-title">Brushes</div>
+        <button class="brush-btn active" id="b-start" onclick="setBrush('start')">
+          <span class="brush-icon" style="background:#1976d2;border-color:#64b5f6;"></span>Start
+        </button>
+        <button class="brush-btn" id="b-end" onclick="setBrush('end')">
+          <span class="brush-icon" style="background:#d32f2f;border-color:#ff5252;"></span>End
+        </button>
+        <button class="brush-btn" id="b-wall" onclick="setBrush('wall')">
+          <span class="brush-icon" style="background:#555;border-color:#888;"></span>Wall
+        </button>
+        <button class="brush-btn" id="b-erase" onclick="setBrush('erase')">
+          <span class="brush-icon" style="background:#111;border-color:#fff;"></span>Erase
+        </button>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Controls</div>
+        <button class="ctrl-btn btn-run" onclick="runAlgo()">Run</button>
+        <button class="ctrl-btn btn-stop" onclick="stopAlgo()">STOP</button>
+        <button class="ctrl-btn btn-maze" onclick="genMaze()">🎲 Maze</button>
+        <button class="ctrl-btn btn-clear" onclick="clearGrid()">Clear</button>
+        <div class="speed-wrap">
+          <label>Speed: <span id="speed-label">fast</span></label>
+          <input type="range" id="speed-ctrl" min="1" max="5" value="4" step="1" oninput="updateSpeed(this.value)">
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Stats</div>
+        <div class="stat-box">
+          <span class="stat-label">cells explored</span>
+          <span class="stat-val highlight" id="s-explored">0</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">walls drawn</span>
+          <span class="stat-val" id="s-walls">0</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">runs completed</span>
+          <span class="stat-val" id="s-runs">0</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+const COLS = 36, ROWS = 24;
+let CELL = 21;
+let grid = [], brush = 'start', isDrawing = false;
+let startCell = null, endCell = null;
+let animTimeout = null, running = false, speedMs = 8;
+let wallCount = 0, runCount = 0;
+
+const canvas = document.getElementById('grid-canvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas(){
+  const wrap = document.getElementById('canvas-wrap');
+  const w = Math.max(100, wrap.clientWidth);
+  const h = Math.max(100, wrap.clientHeight);
+  const cell = Math.floor(Math.min(w / COLS, h / ROWS));
+  CELL = Math.max(4, cell || 4);
+  const cw = COLS * CELL;
+  const ch = ROWS * CELL;
+  canvas.width = cw;
+  canvas.height = ch;
+  canvas.style.width = cw + 'px';
+  canvas.style.height = ch + 'px';
+  drawGrid();
+}
+function layoutAndResize(){
+  const app = document.getElementById('app');
+  const title = document.getElementById('title-bar');
+  const status = document.getElementById('status-bar');
+  const wrap = document.getElementById('canvas-wrap');
+  const sidebar = document.getElementById('sidebar');
+  const appStyle = getComputedStyle(app);
+  const appPad = (parseFloat(appStyle.paddingTop)||0) + (parseFloat(appStyle.paddingBottom)||0);
+  const avail = window.innerHeight - title.getBoundingClientRect().height - appPad - 2; // small fudge
+  const statusH = status.getBoundingClientRect().height;
+  const gap = 6;
+  const wrapH = Math.max(80, Math.floor(avail - statusH - gap));
+  wrap.style.height = wrapH + 'px';
+  sidebar.style.maxHeight = (avail) + 'px';
+  if (!running) resizeCanvas();
+  else setTimeout(resizeCanvas,250);
+}
+window.addEventListener('resize', layoutAndResize);
+
+const COLORS = { empty:'#1a1a1a', wall:'#555', start:'#1976d2', end:'#d32f2f', explored:'#1a3a5c', path:'#ffd600' };
+
+function initGrid() {
+  grid = []; wallCount = 0;
+  for (let r=0;r<ROWS;r++){grid[r]=[];for(let c=0;c<COLS;c++)grid[r][c]='empty';}
+  startCell={r:6,c:4}; endCell={r:17,c:31};
+  grid[startCell.r][startCell.c]='start';
+  grid[endCell.r][endCell.c]='end';
+  layoutAndResize(); setStat('s-walls',0);
+}
+
+function drawGrid() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
+    ctx.fillStyle=COLORS[grid[r][c]]||COLORS.empty;
+    ctx.fillRect(c*CELL,r*CELL,CELL,CELL);
+  }
+  ctx.strokeStyle='#333'; ctx.lineWidth=0.5;
+  for(let r=0;r<=ROWS;r++){ctx.beginPath();ctx.moveTo(0,r*CELL);ctx.lineTo(COLS*CELL,r*CELL);ctx.stroke();}
+  for(let c=0;c<=COLS;c++){ctx.beginPath();ctx.moveTo(c*CELL,0);ctx.lineTo(c*CELL,ROWS*CELL);ctx.stroke();}
+  ctx.strokeStyle='#ffd600'; ctx.lineWidth=1;
+  for(let r=0;r<=ROWS;r+=6){ctx.beginPath();ctx.moveTo(0,r*CELL);ctx.lineTo(COLS*CELL,r*CELL);ctx.stroke();}
+  for(let c=0;c<=COLS;c+=6){ctx.beginPath();ctx.moveTo(c*CELL,0);ctx.lineTo(c*CELL,ROWS*CELL);ctx.stroke();}
+}
+
+function cellFromEvent(e) {
+  const rect=canvas.getBoundingClientRect();
+  const sx=canvas.width/rect.width, sy=canvas.height/rect.height;
+  return {r:Math.floor(((e.clientY-rect.top)*sy)/CELL),c:Math.floor(((e.clientX-rect.left)*sx)/CELL)};
+}
+
+function paintCell(r,c) {
+  if(r<0||r>=ROWS||c<0||c>=COLS||running)return;
+  const cur=grid[r][c];
+  if(brush==='start'){
+    if(cur==='end')return;
+    if(startCell)grid[startCell.r][startCell.c]='empty';
+    startCell={r,c};grid[r][c]='start';
+  } else if(brush==='end'){
+    if(cur==='start')return;
+    if(endCell)grid[endCell.r][endCell.c]='empty';
+    endCell={r,c};grid[r][c]='end';
+  } else if(brush==='wall'){
+    if(cur!=='start'&&cur!=='end'&&cur!=='wall'){grid[r][c]='wall';wallCount++;setStat('s-walls',wallCount);}
+  } else {
+    if(cur==='start')startCell=null;
+    if(cur==='end')endCell=null;
+    if(cur==='wall'){wallCount=Math.max(0,wallCount-1);setStat('s-walls',wallCount);}
+    grid[r][c]='empty';
+  }
+  drawGrid();
+}
+
+canvas.addEventListener('mousedown',e=>{isDrawing=true;const p=cellFromEvent(e);paintCell(p.r,p.c);});
+canvas.addEventListener('mousemove',e=>{if(!isDrawing)return;const p=cellFromEvent(e);paintCell(p.r,p.c);});
+document.addEventListener('mouseup',()=>isDrawing=false);
+canvas.addEventListener('touchstart',e=>{e.preventDefault();isDrawing=true;const t=e.touches[0];const p=cellFromEvent(t);paintCell(p.r,p.c);},{passive:false});
+canvas.addEventListener('touchmove',e=>{e.preventDefault();const t=e.touches[0];const p=cellFromEvent(t);paintCell(p.r,p.c);},{passive:false});
+canvas.addEventListener('touchend',()=>isDrawing=false);
+
+function setBrush(b){
+  brush=b;
+  ['start','end','wall','erase'].forEach(x=>document.getElementById('b-'+x).classList.remove('active'));
+  document.getElementById('b-'+b).classList.add('active');
+}
+function updateSpeed(v){
+  const labels=['','very slow','slow','medium','fast','TURBO!!'];
+  document.getElementById('speed-label').textContent=labels[v];
+  speedMs=[0,150,55,20,8,1][v];
+}
+function setStatus(msg){document.getElementById('status-bar').textContent=msg;}
+function setStat(id,v){document.getElementById(id).textContent=v;}
+
+function clearVisited(){
+  for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++)
+    if(grid[r][c]==='explored'||grid[r][c]==='path')grid[r][c]='empty';
+}
+function stopAlgo(){if(animTimeout)clearTimeout(animTimeout);running=false;setStatus('stopped!! make changes and run again');}
+function clearGrid(){
+  if(animTimeout)clearTimeout(animTimeout);running=false;initGrid();
+  setStat('s-explored',0);setStatus('grid cleared!! draw ur maze :)');
+}
+
+const key=(r,c)=>r+','+c;
+const h=(a,b)=>Math.abs(a.r-b.r)+Math.abs(a.c-b.c);
+function neighbors(r,c){
+  return [{r:r-1,c},{r:r+1,c},{r,c:c-1},{r,c:c+1}]
+    .filter(n=>n.r>=0&&n.r<ROWS&&n.c>=0&&n.c<COLS&&grid[n.r][n.c]!=='wall');
+}
+
+function runAlgo(){
+  if(!startCell||!endCell){setStatus('need start AND end node!!');return;}
+  if(animTimeout)clearTimeout(animTimeout);
+  running=true; clearVisited();
+  grid[startCell.r][startCell.c]='start'; grid[endCell.r][endCell.c]='end'; drawGrid();
+  setStatus('A* is searching...');
+
+  const steps=[], pm={};
+  let found=false;
+  const gs={[key(startCell.r,startCell.c)]:0};
+  const fs={[key(startCell.r,startCell.c)]:h(startCell,endCell)};
+  const open=[{r:startCell.r,c:startCell.c}], closed=new Set();
+
+  while(open.length){
+    open.sort((a,b)=>(fs[key(a.r,a.c)]||Infinity)-(fs[key(b.r,b.c)]||Infinity));
+    const cur=open.shift(), k=key(cur.r,cur.c);
+    if(cur.r===endCell.r&&cur.c===endCell.c){found=true;break;}
+    closed.add(k);
+    for(const nb of neighbors(cur.r,cur.c)){
+      const nk=key(nb.r,nb.c);
+      if(closed.has(nk))continue;
+      const tg=(gs[k]||0)+1;
+      if(!gs[nk]||tg<gs[nk]){
+        pm[nk]=k; gs[nk]=tg; fs[nk]=tg+h(nb,endCell);
+        if(!open.find(n=>key(n.r,n.c)===nk)){steps.push({...nb});open.push(nb);}
+      }
+    }
+  }
+
+  let path=[];
+  if(found){
+    let cur=key(endCell.r,endCell.c);
+    while(pm[cur]){const[pr,pc]=cur.split(',').map(Number);path.unshift({r:pr,c:pc});cur=pm[cur];}
+  }
+
+  setStat('s-explored',steps.length);
+  runCount++; setStat('s-runs',runCount);
+
+  const allSteps=[...steps.map(s=>({...s,t:'e'})),...path.map(s=>({...s,t:'p'}))];
+  let i=0;
+  function animate(){
+    if(!running)return;
+    if(i>=allSteps.length){
+      running=false;
+      if(found) setStatus('PATH FOUND!! length='+path.length+' cells, explored='+steps.length);
+      else setStatus('no path found... too many walls');
+      drawGrid();return;
+    }
+    const s=allSteps[i++];
+    if(s.t==='e'){if(grid[s.r][s.c]==='empty')grid[s.r][s.c]='explored';}
+    else{if(grid[s.r][s.c]!=='start'&&grid[s.r][s.c]!=='end')grid[s.r][s.c]='path';}
+    drawGrid();
+    animTimeout=setTimeout(animate,speedMs);
+  }
+  animate();
+}
+
+function genMaze(){
+  if(running)return; clearVisited(); wallCount=0;
+  for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++)
+    if(grid[r][c]!=='start'&&grid[r][c]!=='end'){
+      if(Math.random()<0.3){grid[r][c]='wall';wallCount++;}
+      else grid[r][c]='empty';
+    }
+  setStat('s-walls',wallCount); drawGrid();
+  setStatus('random maze generated!! hit RUN to find a path');
+}
+
+initGrid(); updateSpeed(4);
+</script>
