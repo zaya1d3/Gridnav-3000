@@ -1,4 +1,4 @@
-# Gridnav 3000 - A* Pathfinding Research Playground
+# Gridnav 3000 - Pathfinding Research Playground
 
 Gridnav 3000 is a compact, browser-based A* pathfinding visualizer and experimentation sandbox. It was built as a single-file interactive prototype to demonstrate core pathfinding concepts, rapid UI feedback, and a responsive rendering strategy that scales to different viewport sizes.
 
